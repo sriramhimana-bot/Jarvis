@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#00121d">
+<meta name="description" content="JARVIS offline voice-command PWA">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>JARVIS</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:Arial,sans-serif;background:#020810;color:#00eaff}
+body{display:flex;justify-content:center;align-items:center;overflow:hidden}
+.app{width:100%;max-width:760px;height:100%;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);display:flex;flex-direction:column;align-items:center}
+h1{margin:22px 0 8px;font-size:48px;letter-spacing:10px;text-shadow:0 0 20px #00eaff}
+#status{height:28px;font-size:14px;letter-spacing:2px;text-align:center}
+.reactor{width:min(64vw,270px);height:min(64vw,270px);margin:18px auto;border:2px solid #00eaff;border-radius:50%;position:relative;display:grid;place-items:center;box-shadow:0 0 25px #00eaff,inset 0 0 35px #00eaff}
+.reactor:before,.reactor:after{content:"";position:absolute;border:1px dashed #00eaff;border-radius:50%}
+.reactor:before{inset:16px;animation:spin 7s linear infinite}
+.reactor:after{inset:42px;animation:spin 4s linear reverse infinite}
+.core{width:78px;height:78px;border:5px solid #00eaff;border-radius:50%;box-shadow:0 0 35px #00eaff;background:radial-gradient(circle,#fff 0 5%,#00eaff 10%,transparent 65%);animation:pulse 1.2s infinite}
+@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{transform:scale(1.18)}}
+.controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+button{border:1px solid #00eaff;background:#031520;color:#00eaff;border-radius:25px;padding:12px 18px;font-size:15px;box-shadow:0 0 10px #00eaff;cursor:pointer}
+button:active{transform:scale(.96)}
+#chat{width:100%;flex:1;min-height:120px;max-height:36vh;overflow:auto;margin:14px 0;padding:12px;border:1px solid #00eaff;border-radius:12px;background:#00131e}
+.msg{margin:8px 0;line-height:1.4}.you{color:#fff}.jarvis{color:#00eaff}
+.input{width:100%;display:flex;gap:7px;padding-bottom:12px}
+input{flex:1;min-width:0;border:1px solid #00eaff;border-radius:22px;background:#06131c;color:white;padding:12px 15px;outline:none}
+.small{font-size:11px;opacity:.7;margin-bottom:10px;text-align:center}
+</style>
+</head>
+<body>
+<main class="app">
+<h1>JARVIS</h1>
+<div id="status">SYSTEM READY</div>
+
+<div class="reactor"><div class="core"></div></div>
+
+<div class="controls">
+<button id="talk">🎙️ TALK</button>
+<button id="stop">🔇 STOP</button>
+<button id="install" hidden>📲 INSTALL</button>
+<button id="clear">🗑️ CLEAR</button>
+</div>
+
+<div id="chat"></div>
+
+<form class="input" id="form">
+<input id="text" autocomplete="off" placeholder="Type a command...">
+<button type="submit">SEND</button>
+</form>
+
+<div class="small">Offline command engine • No Gemini/API key</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+let recognition=null, deferredPrompt=null;
+
+function status(t){$("status").textContent=t}
+function add(who,text){
+  const d=document.createElement("div");
+  d.className="msg "+(who==="You"?"you":"jarvis");
+  const b=document.createElement("b"); b.textContent=who+": ";
+  d.append(b,document.createTextNode(text));
+  $("chat").appendChild(d); $("chat").scrollTop=$("chat").scrollHeight;
+}
+function speak(text){
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang="en-IN";u.rate=.9;u.pitch=.85;
+  speechSynthesis.speak(u);
+}
+function reply(text){add("JARVIS",text);speak(text)}
+
+function calculate(s){
+  let e=s.toLowerCase().replace(/^calculate\s*/,"")
+    .replace(/multiplied by/g,"*").replace(/divided by/g,"/")
+    .replace(/\bplus\b/g,"+").replace(/\bminus\b/g,"-").replace(/\btimes\b/g,"*");
+  if(!/^[0-9+\-*/().\s]+$/.test(e)) return reply("I can calculate basic numbers and operators only.");
+  try{
+    const n=Function('"use strict";return ('+e+')')();
+    if(!Number.isFinite(n)) throw 0;
+    reply("The answer is "+n);
+  }catch{reply("I could not calculate that.")}
+}
+
+function command(raw){
+  const t=raw.toLowerCase().trim(); add("You",raw);
+  if(!t)return;
+  if(/^(hello|hi|hey)( jarvis)?$/.test(t)||t.includes("hello jarvis")) return reply("Hello. JARVIS is ready.");
+  if(t.includes("who are you")||t.includes("your name")) return reply("I am JARVIS, your offline command assistant.");
+  if(t.includes("how are you")) return reply("All systems are functioning normally.");
+  if(t.includes("time")) return reply("The time is "+new Date().toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}));
+  if(t.includes("date")) return reply("Today is "+new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}));
+  if(t.startsWith("calculate ")) return calculate(raw);
+  if(t==="open google"||t==="open youtube"){
+    const site=t.includes("youtube")?"https://www.youtube.com":"https://www.google.com";
+    reply("Opening "+(t.includes("youtube")?"YouTube":"Google")+".");
+    window.open(site,"_blank"); return;
+  }
+  if(t.startsWith("search ")){
+    const q=raw.slice(7).trim();
+    if(q){reply("Searching for "+q+".");window.open("https://www.google.com/search?q="+encodeURIComponent(q),"_blank");}
+    return;
+  }
+  if(t.includes("clear screen")){$("chat").innerHTML="";return reply("Screen cleared.");}
+  if(t.includes("stop listening")||t.includes("go offline")){stopListening();return reply("Voice listening stopped.");}
+  if(t.includes("thank")) return reply("You're welcome.");
+  if(t.includes("goodbye")||t==="bye") return reply("Goodbye.");
+  reply("I am offline. Try time, date, calculate, open Google, open YouTube, or search.");
+}
+
+function stopListening(){
+  if(recognition){try{recognition.stop()}catch{}}
+  status("SYSTEM READY");
+}
+function startListening(){
+  if(!("SpeechRecognition"in window)&&!("webkitSpeechRecognition"in window)){
+    status("VOICE NOT SUPPORTED"); reply("Voice recognition is not supported by this browser. You can type commands below."); return;
+  }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!recognition){
+    recognition=new SR();
+    recognition.lang="en-IN";recognition.continuous=false;recognition.interimResults=false;
+    recognition.onstart=()=>status("LISTENING...");
+    recognition.onend=()=>status("SYSTEM READY");
+    recognition.onerror=e=>{status("VOICE ERROR");add("JARVIS","Voice error: "+e.error+". Try typing the command.");};
+    recognition.onresult=e=>command(e.results[0][0].transcript);
+  }
+  try{recognition.start()}catch{}
+}
+
+$("talk").onclick=startListening;
+$("stop").onclick=()=>{stopListening();speechSynthesis.cancel()};
+$("clear").onclick=()=>$("chat").innerHTML="";
+$("form").onsubmit=e=>{e.preventDefault();command($("text").value);$("text").value=""};
+
+add("JARVIS","Offline system initialized. Type a command or tap TALK.");
+
+if("serviceWorker"in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js").catch(console.error));
+}
+window.addEventListener("beforeinstallprompt",e=>{
+  e.preventDefault();deferredPrompt=e;$("install").hidden=false;
+});
+$("install").onclick=async()=>{
+  if(!deferredPrompt)return;
+  deferredPrompt.prompt(); await deferredPrompt.userChoice;
+  deferredPrompt=null;$("install").hidden=true;
+};
+window.addEventListener("appinstalled",()=>{add("JARVIS","JARVIS has been installed.");$("install").hidden=true});
+</script>
+</body>
+</html>
